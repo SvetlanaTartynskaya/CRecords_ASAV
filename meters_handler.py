@@ -24,45 +24,155 @@ WAITING_FOR_METERS_DATA = 1
 
 # Часовые пояса России
 RUSSIAN_TIMEZONES = {
-    'Калининград': 'Europe/Kaliningrad',  # UTC+2
-    'Москва': 'Europe/Moscow',            # UTC+3
-    'Самара': 'Europe/Samara',            # UTC+4
-    'Екатеринбург': 'Asia/Yekaterinburg', # UTC+5
-    'Омск': 'Asia/Omsk',                  # UTC+6
-    'Красноярск': 'Asia/Krasnoyarsk',     # UTC+7
-    'Иркутск': 'Asia/Irkutsk',            # UTC+8
-    'Якутск': 'Asia/Yakutsk',             # UTC+9
-    'Владивосток': 'Asia/Vladivostok',    # UTC+10
-    'Магадан': 'Asia/Magadan',            # UTC+11
-    'Камчатка': 'Asia/Kamchatka'          # UTC+12
+    # Центральный федеральный округ (UTC+3)
+    'Белго': 'Europe/Moscow',
+    'Брянс': 'Europe/Moscow',
+    'Влади': 'Europe/Moscow',
+    'Ворон': 'Europe/Moscow',
+    'Ивано': 'Europe/Moscow',
+    'Калуж': 'Europe/Moscow',
+    'Костр': 'Europe/Moscow',
+    'Курск': 'Europe/Moscow',
+    'Липец': 'Europe/Moscow',
+    'Москв': 'Europe/Moscow',
+    'Орлов': 'Europe/Moscow',
+    'Рязан': 'Europe/Moscow',
+    'Смоле': 'Europe/Moscow',
+    'Тамбо': 'Europe/Moscow',
+    'Тверс': 'Europe/Moscow',
+    'Тульс': 'Europe/Moscow',
+    'Яросл': 'Europe/Moscow',
+    
+    # Северо-Западный федеральный округ
+    'Архан': 'Europe/Moscow',
+    'Волог': 'Europe/Moscow',
+    'Калин': 'Europe/Kaliningrad',  # UTC+2
+    'Карел': 'Europe/Moscow',
+    'Коми': 'Europe/Moscow',
+    'Ленин': 'Europe/Moscow',
+    'Мурма': 'Europe/Moscow',
+    'Ненец': 'Europe/Moscow',
+    'Новго': 'Europe/Moscow',
+    'Псков': 'Europe/Moscow',
+    'Санкт': 'Europe/Moscow',
+    
+    # Южный и Северо-Кавказский федеральные округа
+    'Адыге': 'Europe/Moscow',
+    'Астра': 'Europe/Samara',  # UTC+4
+    'Волго': 'Europe/Moscow',
+    'Дагес': 'Europe/Moscow',
+    'Ингуш': 'Europe/Moscow',
+    'Кабар': 'Europe/Moscow',
+    'Калмы': 'Europe/Moscow',
+    'Карач': 'Europe/Moscow',
+    'Красн': 'Europe/Moscow',  # Краснодарский край
+    'Крым': 'Europe/Moscow',
+    'Росто': 'Europe/Moscow',
+    'Север': 'Europe/Moscow',
+    'Ставр': 'Europe/Moscow',
+    'Чечня': 'Europe/Moscow',
+    
+    # Приволжский федеральный округ
+    'Башко': 'Asia/Yekaterinburg',  # UTC+5
+    'Киров': 'Europe/Moscow',
+    'Марий': 'Europe/Moscow',
+    'Мордо': 'Europe/Moscow',
+    'Нижег': 'Europe/Moscow',
+    'Оренб': 'Asia/Yekaterinburg',  # UTC+5
+    'Пензе': 'Europe/Moscow',
+    'Пермс': 'Asia/Yekaterinburg',  # UTC+5
+    'Самар': 'Europe/Samara',  # UTC+4
+    'Сарат': 'Europe/Samara',  # UTC+4
+    'Татар': 'Europe/Moscow',
+    'Удмур': 'Europe/Samara',  # UTC+4
+    'Ульян': 'Europe/Samara',  # UTC+4
+    'Чуваш': 'Europe/Moscow',
+    
+    # Уральский федеральный округ
+    'Курга': 'Asia/Yekaterinburg',  # UTC+5
+    'Сверд': 'Asia/Yekaterinburg',  # UTC+5
+    'Тюмен': 'Asia/Yekaterinburg',  # UTC+5
+    'Ханты': 'Asia/Yekaterinburg',  # UTC+5
+    'Челяб': 'Asia/Yekaterinburg',  # UTC+5
+    'Ямало': 'Asia/Yekaterinburg',  # UTC+5
+    
+    # Сибирский федеральный округ
+    'Алтай': 'Asia/Krasnoyarsk',  # UTC+7
+    'Бурят': 'Asia/Irkutsk',  # UTC+8
+    'Забай': 'Asia/Yakutsk',  # UTC+9
+    'Иркут': 'Asia/Irkutsk',  # UTC+8
+    'Кемер': 'Asia/Krasnoyarsk',  # UTC+7
+    'Красн': 'Asia/Krasnoyarsk',  # UTC+7 - Красноярский край
+    'Новос': 'Asia/Krasnoyarsk',  # UTC+7
+    'Омска': 'Asia/Omsk',  # UTC+6
+    'Томск': 'Asia/Krasnoyarsk',  # UTC+7
+    'Тыва': 'Asia/Krasnoyarsk',  # UTC+7
+    'Хакас': 'Asia/Krasnoyarsk',  # UTC+7
+    
+    # Дальневосточный федеральный округ
+    'Амурс': 'Asia/Yakutsk',  # UTC+9
+    'Еврей': 'Asia/Vladivostok',  # UTC+10
+    'Камча': 'Asia/Kamchatka',  # UTC+12
+    'Магад': 'Asia/Magadan',  # UTC+11
+    'Примо': 'Asia/Vladivostok',  # UTC+10
+    'Саха': 'Asia/Yakutsk',  # UTC+9
+    'Сахал': 'Asia/Magadan',  # UTC+11
+    'Хабар': 'Asia/Vladivostok',  # UTC+10
+    'Чукот': 'Asia/Kamchatka'  # UTC+12
 }
 
 def get_timezone_for_location(location: str) -> str:
     """Определяем часовой пояс по названию локации"""
+    # Проверяем первые 5 букв локации
+    location_prefix = location.strip()[:5].capitalize()
+    
+    if location_prefix in RUSSIAN_TIMEZONES:
+        return RUSSIAN_TIMEZONES[location_prefix]
+    
+    # Если не нашли по первым 5 буквам, пробуем найти по содержанию
     location_lower = location.lower()
     
-    if 'калининград' in location_lower:
-        return RUSSIAN_TIMEZONES['Калининград']
-    elif 'самара' in location_lower or 'татарстан' in location_lower or 'удмуртия' in location_lower:
-        return RUSSIAN_TIMEZONES['Самара']
-    elif 'екатеринбург' in location_lower or 'челябинск' in location_lower or 'тюмен' in location_lower:
-        return RUSSIAN_TIMEZONES['Екатеринбург']
-    elif 'омск' in location_lower or 'новосибирск' in location_lower or 'томск' in location_lower:
-        return RUSSIAN_TIMEZONES['Омск']
-    elif 'красноярск' in location_lower or 'хакасия' in location_lower or 'тыва' in location_lower:
-        return RUSSIAN_TIMEZONES['Красноярск']
-    elif 'иркутск' in location_lower or 'бурятия' in location_lower:
-        return RUSSIAN_TIMEZONES['Иркутск']
-    elif 'якутск' in location_lower or 'саха' in location_lower:
-        return RUSSIAN_TIMEZONES['Якутск']
-    elif 'владивосток' in location_lower or 'хабаровск' in location_lower:
-        return RUSSIAN_TIMEZONES['Владивосток']
-    elif 'магадан' in location_lower or 'сахалин' in location_lower:
-        return RUSSIAN_TIMEZONES['Магадан']
-    elif 'камчатка' in location_lower or 'чукотка' in location_lower:
-        return RUSSIAN_TIMEZONES['Камчатка']
-    else:
-        return RUSSIAN_TIMEZONES['Москва']
+    # Поиск по наиболее характерным частям названий
+    if 'москв' in location_lower:
+        return 'Europe/Moscow'
+    elif 'калин' in location_lower:
+        return 'Europe/Kaliningrad'
+    elif 'самар' in location_lower or 'саратов' in location_lower:
+        return 'Europe/Samara'
+    elif 'екатер' in location_lower or 'свердл' in location_lower:
+        return 'Asia/Yekaterinburg'
+    elif 'омск' in location_lower:
+        return 'Asia/Omsk'
+    elif 'красноярск' in location_lower:
+        return 'Asia/Krasnoyarsk'
+    elif 'краснодар' in location_lower:
+        return 'Europe/Moscow'
+    elif 'иркут' in location_lower or 'бурят' in location_lower:
+        return 'Asia/Irkutsk'
+    elif 'якут' in location_lower or 'саха' in location_lower:
+        return 'Asia/Yakutsk'
+    elif 'владив' in location_lower or 'примор' in location_lower:
+        return 'Asia/Vladivostok'
+    elif 'магад' in location_lower or 'сахал' in location_lower:
+        return 'Asia/Magadan'
+    elif 'камчат' in location_lower or 'чукот' in location_lower:
+        return 'Asia/Kamchatka'
+    
+    # По умолчанию возвращаем московское время
+    return 'Europe/Moscow'
+
+def get_local_datetime(location: str) -> datetime:
+    """Получает текущее время в указанной локации"""
+    timezone_str = get_timezone_for_location(location)
+    timezone = pytz.timezone(timezone_str)
+    return datetime.now(timezone)
+
+def format_datetime_for_timezone(dt: datetime, location: str) -> str:
+    """Форматирует дату/время с учетом часового пояса локации"""
+    timezone_str = get_timezone_for_location(location)
+    timezone = pytz.timezone(timezone_str)
+    local_dt = dt.astimezone(timezone)
+    return local_dt.strftime('%Y-%m-%d %H:%M:%S (%Z)')
 
 def get_equipment_data() -> pd.DataFrame:
     """Получаем данные об оборудовании из 1С:ERP (заглушка)"""
@@ -140,23 +250,8 @@ def prepare_weekly_reminders(context: CallbackContext):
                     # Рассчитываем местное время для отправки напоминания
                     timezone = get_timezone_for_location(location)
                     tz = pytz.timezone(timezone)
-                    moscow_tz = pytz.timezone('Europe/Moscow')
                     
-                    # Получаем текущее время в Москве и в локации пользователя
-                    now_moscow = datetime.now(moscow_tz)
-                    now_local = datetime.now(tz)
-                    
-                    # Разница во времени между Москвой и локацией пользователя
-                    time_diff = now_local - now_moscow
-                    
-                    # Рассчитываем время отправки напоминания (14:00 МСК - разница во времени)
-                    reminder_hour = 14 - (time_diff.total_seconds() // 3600)
-                    if reminder_hour < 0:
-                        reminder_hour += 24
-                    elif reminder_hour >= 24:
-                        reminder_hour -= 24
-                    
-                    # Планируем отправку напоминания
+                    # Планируем отправку напоминания на 10:00 по местному времени пользователя
                     schedule_reminder(
                         context=context,
                         tab_number=tab_number,
@@ -164,7 +259,7 @@ def prepare_weekly_reminders(context: CallbackContext):
                         location=location,
                         division=division,
                         equipment=equipment,
-                        hour=int(reminder_hour),
+                        hour=10,  # Фиксированное время по местному времени 
                         timezone=tz
                     )
             except KeyError:
@@ -211,6 +306,20 @@ def send_reminder(context: CallbackContext):
     deadline = job_context['deadline']
     
     try:
+        # Получаем местное время
+        local_tz = pytz.timezone(get_timezone_for_location(location))
+        current_local_time = datetime.now(local_tz)
+        formatted_time = current_local_time.strftime('%Y-%m-%d %H:%M:%S (%Z)')
+        
+        # Получаем московское время для дедлайна
+        moscow_tz = pytz.timezone('Europe/Moscow')
+        deadline_time = time(hour=14, minute=0, tzinfo=moscow_tz)
+        deadline_datetime = datetime.combine(datetime.now(moscow_tz).date(), deadline_time)
+        
+        # Конвертируем дедлайн в местное время
+        local_deadline = deadline_datetime.astimezone(local_tz)
+        local_deadline_str = local_deadline.strftime('%H:%M (%Z)')
+        
         # Создаем шаблон таблицы
         template_df = pd.DataFrame(columns=[
             '№ п/п', 'Гос. номер', 'Инв. №', 'Счётчик', 'Показания', 'Комментарий'
@@ -233,7 +342,8 @@ def send_reminder(context: CallbackContext):
             text=f"⏰ *Уважаемый {name}, необходимо подать показания счетчиков!*\n\n"
                 f"📍 Локация: {location}\n"
                 f"🏢 Подразделение: {division}\n"
-                f"🕒 Срок подачи: сегодня до {deadline}\n\n"
+                f"🕒 Срок подачи: сегодня до {local_deadline_str}\n"
+                f"🕒 Текущее время: {formatted_time}\n\n"
                 "Заполните столбцы 'Показания' и 'Комментарий' и отправьте файл обратно.",
             parse_mode='Markdown'
         )
@@ -254,109 +364,256 @@ def send_reminder(context: CallbackContext):
         logger.error(f"Ошибка отправки напоминания {tab_number}: {e}")
 
 def handle_meters_file(update: Update, context: CallbackContext):
-    """Обработка полученного файла с показаниями"""
+    # При получении файла с показаниями, сохраняем с учетом часового пояса
     try:
-        if 'waiting_for_meters' not in context.user_data or not context.user_data['waiting_for_meters']:
-            update.message.reply_text("Сейчас не время отправки показаний счетчиков.")
+        if not update.message.document:
+            update.message.reply_text("Пожалуйста, отправьте заполненный файл Excel.")
             return
+            
+        file = update.message.document
+        file_id = file.file_id
+        new_file = context.bot.get_file(file_id)
         
-        user = update.effective_user
-        tab_number = user.id
+        # Создаем папку, если не существует
+        os.makedirs('meter_readings', exist_ok=True)
         
-        # Проверяем, что отправитель - обычный пользователь
-        cursor.execute('SELECT * FROM Users_user_bot WHERE tab_number = ?', (tab_number,))
-        if not cursor.fetchone():
-            update.message.reply_text("Только пользователи могут отправлять показания счетчиков.")
+        # Получаем данные пользователя
+        tab_number = context.user_data.get('tab_number')
+        if not tab_number:
+            update.message.reply_text("Ошибка: не удалось определить ваш табельный номер. Пожалуйста, запустите /start.")
             return
+            
+        cursor.execute('''
+            SELECT name, location, division FROM Users_user_bot WHERE tab_number = ?
+        ''', (tab_number,))
+        user_data = cursor.fetchone()
         
-        # Получаем файл
-        file = context.bot.get_file(update.message.document.file_id)
-        file_name = update.message.document.file_name
+        if not user_data:
+            update.message.reply_text("Ошибка: пользователь не найден в базе данных.")
+            return
+            
+        name, location, division = user_data
         
-        # Проверяем расширение файла
-        if not file_name.lower().endswith(('.xls', '.xlsx')):
-            update.message.reply_text("Пожалуйста, отправьте файл в формате Excel (.xls или .xlsx)")
-            return WAITING_FOR_METERS_DATA
+        # Получаем текущее время в часовом поясе пользователя
+        local_time = get_local_datetime(location)
+        timestamp = local_time.strftime('%Y%m%d_%H%M%S')
         
-        # Скачиваем файл
-        file_path = f"temp_{tab_number}.xlsx"
-        file.download(file_path)
+        # Формируем имя файла с учетом часового пояса
+        file_path = f'meter_readings/meters_{location}_{division}_{timestamp}.xlsx'
+        new_file.download(file_path)
         
-        try:
-            # Пытаемся прочитать файл
-            df = pd.read_excel(file_path)
-            
-            # Проверяем структуру файла
-            required_columns = ['№ п/п', 'Гос. номер', 'Инв. №', 'Счётчик', 'Показания', 'Комментарий']
-            if not all(col in df.columns for col in required_columns):
-                update.message.reply_text("Файл имеет неправильную структуру. Пожалуйста, используйте предоставленный шаблон.")
-                return WAITING_FOR_METERS_DATA
-            
-            # Сохраняем данные
-            location = context.user_data['location']
-            division = context.user_data['division']
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            save_path = f"meter_readings/{location}_{division}_{tab_number}_{timestamp}.xlsx"
-            
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            df.to_excel(save_path, index=False)
-            
-            # Уведомляем администраторов и руководителей
-            notify_admins_and_managers(context, tab_number, user.full_name, location, division, save_path)
-            
-            update.message.reply_text("Спасибо! Ваши показания сохранены.")
-            context.user_data.pop('waiting_for_meters', None)
-            
-        except Exception as e:
-            update.message.reply_text(f"Ошибка при обработке файла: {str(e)}")
-            return WAITING_FOR_METERS_DATA
-            
-        finally:
+        # Проверяем, что файл Excel
+        if not file.file_name.lower().endswith(('.xlsx', '.xls')):
+            update.message.reply_text("Пожалуйста, отправьте файл в формате Excel (.xlsx, .xls)")
             if os.path.exists(file_path):
                 os.remove(file_path)
-                
+            return
+            
+        try:
+            # Открываем файл и добавляем метаданные
+            df = pd.read_excel(file_path)
+            
+            # Формируем информацию для метаданных
+            user_info = {
+                'name': name,
+                'location': location,
+                'division': division,
+                'tab_number': tab_number,
+                'timestamp': format_datetime_for_timezone(local_time, location)
+            }
+            
+            for key, value in user_info.items():
+                if key not in df.columns:
+                    df[key] = value
+            
+            # Сохраняем обновленный файл с метаданными
+            df.to_excel(file_path, index=False)
+        except Exception as e:
+            update.message.reply_text(f"Ошибка при чтении файла Excel: {str(e)}")
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            return
+        
+        # Проверяем файл с показаниями через валидатор
+        from check import MeterValidator
+        validator = MeterValidator()
+        validation_result = validator.validate_file(file_path, user_info)
+        
+        if validation_result['is_valid']:
+            update.message.reply_text("✅ Спасибо! Ваши показания счетчиков приняты и прошли проверку.")
+            
+            # Если есть предупреждения, сообщаем о них
+            if validation_result['warnings']:
+                warnings_text = "\n".join(validation_result['warnings'])
+                update.message.reply_text(f"⚠️ Предупреждения при проверке:\n\n{warnings_text}")
+            
+            # Уведомляем администраторов и руководителей
+            notify_admins_and_managers(context, tab_number, name, location, division, file_path)
+        else:
+            # Формируем сообщение об ошибках
+            errors_text = "\n".join(validation_result['errors'])
+            update.message.reply_text(
+                f"❌ При проверке показаний обнаружены следующие ошибки:\n\n{errors_text}\n\n"
+                "Пожалуйста, исправьте ошибки и отправьте файл повторно."
+            )
+            
+            # Уведомляем администратора о проблемах
+            notify_admin_about_errors(context, tab_number, name, location, division, file_path, validation_result['errors'])
+            
     except Exception as e:
-        update.message.reply_text(f"Произошла ошибка: {str(e)}")
-        return WAITING_FOR_METERS_DATA
+        logger.error(f"Ошибка обработки файла показаний: {e}")
+        update.message.reply_text(f"❌ Произошла ошибка при обработке файла: {str(e)}")
 
 def notify_admins_and_managers(context: CallbackContext, user_tab_number: int, user_name: str, 
                              location: str, division: str, file_path: str):
     """Уведомление администраторов и руководителей о новых показаниях"""
     try:
-        # Получаем всех админов и руководителей с такой же локацией и подразделением
-        cursor.execute('''
-            SELECT tab_number FROM Users_admin_bot 
-            WHERE location = ? AND division = ?
-            UNION
-            SELECT tab_number FROM Users_dir_bot 
-            WHERE location = ? AND division = ?
-        ''', (location, division, location, division))
+        # Убеждаемся, что папка meter_readings существует
+        os.makedirs('meter_readings', exist_ok=True)
         
-        recipients = cursor.fetchall()
+        # Загружаем данные отчета
+        report_df = pd.read_excel(file_path)
         
-        for (tab_number,) in recipients:
+        # Получаем список всех администраторов
+        cursor.execute('SELECT tab_number, name FROM Users_admin_bot')
+        admins = cursor.fetchall()
+        
+        # Получаем список всех руководителей
+        cursor.execute('SELECT tab_number, name FROM Users_dir_bot')
+        managers = cursor.fetchall()
+        
+        # Получаем текущее время в часовом поясе локации
+        local_time = get_local_datetime(location)
+        formatted_time = format_datetime_for_timezone(local_time, location)
+        
+        # Сообщение
+        message = f"📊 *Получены новые показания счетчиков*\n\n" \
+                  f"👤 От: {user_name}\n" \
+                  f"📍 Локация: {location}\n" \
+                  f"🏢 Подразделение: {division}\n" \
+                  f"⏰ Время: {formatted_time}"
+                  
+        # Для администраторов, получаем генератор отчетов из контекста
+        report_generator = context.bot_data.get('report_generator')
+        if not report_generator:
+            from check import FinalReportGenerator
+            report_generator = FinalReportGenerator(context.bot)
+            context.bot_data['report_generator'] = report_generator
+            
+        # Инициализируем новый цикл, если еще не инициализирован
+        cycle_id = report_generator.init_new_report_cycle()
+        
+        # Проверяем, что цикл создан успешно
+        if not cycle_id:
+            logger.error("Не удалось инициализировать цикл отчётности")
+            Update.message.reply_text("❌ Ошибка при создании цикла отчётности. Пожалуйста, свяжитесь с администратором.")
+            return
+            
+        # Добавляем отчет пользователя
+        user_info = {
+            'name': user_name, 
+            'location': location, 
+            'division': division, 
+            'tab_number': user_tab_number
+        }
+        report_path = report_generator.add_user_report(file_path, user_info)
+        
+        # Проверяем, что отчет добавлен успешно
+        if not report_path:
+            logger.error("Не удалось добавить отчет пользователя в цикл")
+            return
+            
+        # Отправляем запрос на подтверждение администраторам
+        report_generator.send_verification_request(context, report_path)
+        
+        # Уведомляем руководителей (без кнопки подтверждения)
+        for manager_id, manager_name in managers:
             try:
-                # Создаем кнопку для открытия файла
-                file_url = f"file://{os.path.abspath(file_path)}"
-                
+                # Отправляем уведомление
                 context.bot.send_message(
-                    chat_id=tab_number,
-                    text=f"📊 Пользователь <a href='tg://user?id={user_tab_number}'>{user_name}</a> (таб. № {user_tab_number}) "
-                         f"отправил <a href='{file_url}'>показания счетчиков</a>.\n\n"
-                         f"🔴 Локация: {location}\n"
-                         f"🏢 Подразделение: {division}",
-                    parse_mode='HTML',
-                    disable_web_page_preview=False
+                    chat_id=manager_id,
+                    text=f"{message}\n\nОтчёт прикреплен ниже.",
+                    parse_mode='Markdown'
                 )
                 
+                # Проверяем существование файла перед отправкой
+                if os.path.exists(file_path):
+                    # Отправляем файл
+                    with open(file_path, 'rb') as f:
+                        context.bot.send_document(
+                            chat_id=manager_id,
+                            document=f,
+                            caption=f"Показания счетчиков от {user_name}"
+                        )
+                else:
+                    logger.error(f"Файл не найден при отправке руководителю: {file_path}")
             except Exception as e:
-                logger.error(f"Ошибка отправки уведомления {tab_number}: {e}")
+                logger.error(f"Ошибка уведомления руководителя {manager_id}: {e}")
                 
     except Exception as e:
-        logger.error(f"Ошибка уведомления администраторов: {e}")
+        logger.error(f"Ошибка уведомления о новых показаниях: {e}")
+
+def notify_admin_about_errors(context: CallbackContext, user_tab_number: int, user_name: str,
+                             location: str, division: str, file_path: str, errors: list):
+    """Уведомление администратора о проблемах с файлом показаний"""
+    try:
+        # Убеждаемся, что папка meter_readings существует
+        os.makedirs('meter_readings', exist_ok=True)
+        
+        # Получаем администраторов данного подразделения
+        from check import MeterValidator
+        validator = MeterValidator()
+        admins = validator.get_admin_for_division(division)
+        
+        if not admins:
+            logger.error(f"Не найдены администраторы для подразделения {division}")
+            return
+            
+        # Формируем текст сообщения
+        errors_text = "\n".join(errors)
+        local_time = get_local_datetime(location)
+        formatted_time = format_datetime_for_timezone(local_time, location)
+        
+        message = f"⚠️ *Ошибки в показаниях счетчиков*\n\n" \
+                  f"👤 От: {user_name}\n" \
+                  f"📍 Локация: {location}\n" \
+                  f"🏢 Подразделение: {division}\n" \
+                  f"⏰ Время: {formatted_time}\n\n" \
+                  f"Обнаружены следующие ошибки:\n{errors_text}"
+        
+        # Отправляем сообщение всем администраторам подразделения
+        for admin_id, admin_name in admins:
+            try:
+                context.bot.send_message(
+                    chat_id=admin_id,
+                    text=message,
+                    parse_mode='Markdown'
+                )
+                
+                # Проверяем существование файла перед отправкой
+                if os.path.exists(file_path):
+                    # Отправляем файл
+                    with open(file_path, 'rb') as f:
+                        context.bot.send_document(
+                            chat_id=admin_id,
+                            document=f,
+                            caption=f"Показания счетчиков с ошибками от {user_name}"
+                        )
+                else:
+                    logger.error(f"Файл не найден при отправке администратору: {file_path}")
+                    context.bot.send_message(
+                        chat_id=admin_id,
+                        text=f"⚠️ Файл показаний не найден или был удалён.",
+                        parse_mode='Markdown'
+                    )
+            except Exception as e:
+                logger.error(f"Ошибка уведомления администратора {admin_id}: {e}")
+                
+    except Exception as e:
+        logger.error(f"Ошибка уведомления администраторов о проблемах: {e}")
 
 def setup_meters_handlers(dispatcher):
-    """Настройка обработчиков для функционала счетчиков"""
+    """Настройка обработчиков для работы с показаниями счетчиков"""
     try:
         # Планируем еженедельные напоминания при старте бота
         dispatcher.job_queue.run_once(
@@ -365,12 +622,14 @@ def setup_meters_handlers(dispatcher):
             name="init_weekly_schedule"
         )
         
-        # Обработчик для получения файлов с показаниями
-        dispatcher.add_handler(MessageHandler(
-            Filters.document,
-            handle_meters_file
-        ))
+        # Регистрация обработчика файлов с показаниями
+        dispatcher.add_handler(
+            MessageHandler(
+                Filters.document.file_extension(['xls', 'xlsx']),
+                handle_meters_file
+            )
+        )
         
-        logger.info("Обработчики счетчиков настроены")
+        logger.info("Обработчики показаний счетчиков зарегистрированы")
     except Exception as e:
-        logger.error(f"Ошибка настройки обработчиков: {e}")
+        logger.error(f"Ошибка настройки обработчиков показаний: {e}")

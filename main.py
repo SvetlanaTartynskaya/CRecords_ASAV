@@ -364,7 +364,6 @@ def cancel(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 def return_to_start(update: Update, context: CallbackContext):
-    # Очищаем все данные пользователя
     context.user_data.clear()
     
     # Отправляем сообщение с инструкцией
@@ -378,25 +377,40 @@ def return_to_start(update: Update, context: CallbackContext):
     return ENTER_TAB_NUMBER
 
 def main():
+    # Инициализация бота
     updater = Updater("7575482607:AAG9iLYAO2DFpjHVBDn3-m-tLicdNXBsyBQ", use_context=True)
     dispatcher = updater.dispatcher
-
+    
+    # Регистрация генератора итоговых отчетов
+    from check import FinalReportGenerator, setup_approval_handler
+    report_generator = FinalReportGenerator(updater.bot)
+    dispatcher.bot_data['report_generator'] = report_generator
+    
+    # Регистрация обработчиков
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
-            ENTER_TAB_NUMBER: [MessageHandler(Filters.text & ~Filters.command, handle_tab_number)],
+            ENTER_TAB_NUMBER: [MessageHandler(Filters.text & (~Filters.command), handle_tab_number)],
         },
-        fallbacks=[
-            CommandHandler('cancel', cancel),
-            MessageHandler(Filters.regex('^В начало$'), return_to_start)  # Добавляем обработчик
-        ],
+        fallbacks=[CommandHandler('cancel', cancel)]
     )
-
-    dispatcher.add_handler(conv_handler)
-    dispatcher.add_handler(get_vacation_conversation_handler())
-    # Обновляем обработчик кнопок
+    
+    # Обработчик кнопок
     dispatcher.add_handler(MessageHandler(Filters.regex('^(Я уволился|Я в отпуске|В начало)$'), handle_button))
-
+    
+    # Обработчик конверсейшена для отпуска
+    dispatcher.add_handler(get_vacation_conversation_handler())
+    
+    # Обработчик основного диалога
+    dispatcher.add_handler(conv_handler)
+    
+    # Настройка обработчиков для работы с показаниями счетчиков
+    from meters_handler import setup_meters_handlers
+    setup_meters_handlers(dispatcher)
+    
+    # Настройка обработчика для кнопки "Всё верно"
+    setup_approval_handler(dispatcher)
+    
     # Настройка ежедневного обновления в 8:00 по Москве
     job_queue = updater.job_queue
     moscow_tz = pytz.timezone('Europe/Moscow')
@@ -405,6 +419,7 @@ def main():
     # Первоначальное обновление БД при запуске
     update_db_from_excel()
 
+    # Запуск бота
     updater.start_polling()
     updater.idle()
 
