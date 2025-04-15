@@ -333,6 +333,22 @@ class FinalReportGenerator:
             PRIMARY KEY (cycle_id, admin_id)
         )
         ''')
+        
+        # Создаем таблицу для хранения последнего отчета
+        self.cursor.execute('''
+        CREATE TABLE IF NOT EXISTS latest_report (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inventory_number TEXT,
+            meter_type TEXT,
+            reading REAL,
+            comment TEXT,
+            sender TEXT,
+            report_date TEXT,
+            division TEXT,
+            location TEXT,
+            state_number TEXT
+        )
+        ''')
         self.conn.commit()
         
         # Создаем экземпляр валидатора
@@ -621,10 +637,13 @@ class FinalReportGenerator:
                 final_path = os.path.join(cycle_dir, "FINAL_REPORT.xlsx")
                 final_df.to_excel(final_path, index=False)
                 
+                # Сохраняем отчет в базу данных
+                self._save_report_to_database(final_df)
+                
                 # Отправляем уведомление всем администраторам
                 self._notify_admins_about_final_report(context, final_path)
                 
-                logger.info("Итоговый отчет успешно сформирован")
+                logger.info("Итоговый отчет успешно сформирован и сохранен в базу данных")
             except Exception as e:
                 logger.error(f"Ошибка при формировании итогового отчета: {e}")
                 
@@ -643,6 +662,53 @@ class FinalReportGenerator:
                         logger.error(f"Ошибка уведомления администратора {admin_id}: {e}")
         except Exception as e:
             logger.error(f"Ошибка генерации итогового отчета: {e}")
+            
+    def _save_report_to_database(self, final_df):
+        """Сохранение итогового отчета в базу данных"""
+        try:
+            # Начинаем транзакцию
+            with self.conn:
+                # Очищаем предыдущие данные - перезаписываем таблицу
+                self.cursor.execute('DELETE FROM latest_report')
+                
+                # Маппинг колонок DataFrame на колонки в БД
+                column_mapping = {
+                    'Гос. номер': 'state_number',
+                    'Инв. №': 'inventory_number',
+                    'Счётчик': 'meter_type',
+                    'Показания': 'reading',
+                    'Комментарий': 'comment',
+                    'Отправитель': 'sender',
+                    'Дата': 'report_date',
+                    'Подразделение': 'division',
+                    'Локация': 'location'
+                }
+                
+                # Загружаем данные в БД
+                for _, row in final_df.iterrows():
+                    # Готовим данные для вставки
+                    insert_data = {}
+                    for df_col, db_col in column_mapping.items():
+                        if df_col in final_df.columns:
+                            insert_data[db_col] = str(row[df_col]) if not pd.isna(row[df_col]) else None
+                        else:
+                            insert_data[db_col] = None
+                    
+                    # Формируем SQL запрос
+                    columns = ', '.join(insert_data.keys())
+                    placeholders = ', '.join(['?' for _ in insert_data])
+                    values = tuple(insert_data.values())
+                    
+                    # Выполняем вставку
+                    self.cursor.execute(
+                        f'INSERT INTO latest_report ({columns}) VALUES ({placeholders})',
+                        values
+                    )
+                
+                logger.info(f"В базу данных сохранено {len(final_df)} записей отчета")
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении отчета в базу данных: {e}")
+            self.conn.rollback()
 
     def _notify_admins_about_final_report(self, context: CallbackContext, report_path: str):
         """Уведомление администраторов о готовности итогового отчета"""

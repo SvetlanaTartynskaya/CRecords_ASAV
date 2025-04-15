@@ -114,7 +114,7 @@ def handle_tab_number(update: Update, context: CallbackContext) -> int:
             
             if not is_user_in_db(int(tab_number), role):
                 add_user_to_db(int(tab_number), name, role, t_number, location, division)
-                update.message.reply_text(f"Здравствуйте, {name}! Ваша роль: {role}.\nЛокация: {location}.\nПодразделение: {division}")
+                update.message.reply_text(f"Здравствуйте, {name}!\n Ваша роль: {role}.\nЛокация: {location}.\nПодразделение: {division}")
             else:
                 update.message.reply_text(f"Здравствуйте, {name}! Вы уже зарегистрированы в системе.")
             
