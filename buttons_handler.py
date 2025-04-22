@@ -11,7 +11,7 @@ cursor = conn.cursor()
 ENTER_VACATION_START, ENTER_VACATION_END = range(2)
 
 cursor.execute('''
-CREATE TABLE IF NOT EXISTS User_Vacation (
+CREATE TABLE IF NOT EXISTS vacations (
     tab_number INTEGER PRIMARY KEY,
     start_date TEXT,
     end_date TEXT
@@ -33,7 +33,7 @@ def delete_user(tab_number):
     cursor.execute('DELETE FROM Users_admin_bot WHERE tab_number = ?', (tab_number,))
     cursor.execute('DELETE FROM Users_dir_bot WHERE tab_number = ?', (tab_number,))
     cursor.execute('DELETE FROM Users_user_bot WHERE tab_number = ?', (tab_number,))
-    cursor.execute('DELETE FROM User_Vacation WHERE tab_number = ?', (tab_number,))
+    cursor.execute('DELETE FROM vacations WHERE tab_number = ?', (tab_number,))
     conn.commit()
 
 # Обработка кнопки "Я в отпуске"
@@ -102,7 +102,7 @@ def handle_vacation_confirmation(update: Update, context: CallbackContext) -> in
 # Сохранение дат отпуска в базу данных
 def save_vacation_dates(tab_number, start_date, end_date):
     cursor.execute('''
-    INSERT OR REPLACE INTO User_Vacation (tab_number, start_date, end_date)
+    INSERT OR REPLACE INTO vacations (tab_number, start_date, end_date)
     VALUES (?, ?, ?)
     ''', (tab_number, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')))
     conn.commit()

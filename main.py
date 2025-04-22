@@ -1,13 +1,24 @@
 import pandas as pd
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext, CallbackQueryHandler
 import sqlite3
 import pytz
 from datetime import time, datetime
-from buttons_handler import handle_resignation, get_vacation_conversation_handler
+from buttons_handler import handle_resignation, get_vacation_conversation_handler, handle_vacation_start
+import os
+import logging
+import glob
+import io
+
+# Настройка логирования
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # Состояния для ConversationHandler
-ENTER_TAB_NUMBER, = range(1)
+ENTER_TAB_NUMBER, ENTER_READINGS, SELECT_EQUIPMENT, ENTER_VALUE, CONFIRM_READINGS = range(5)
 
 conn = sqlite3.connect('Users_bot.db', check_same_thread=False)
 cursor = conn.cursor()
@@ -217,7 +228,8 @@ def handle_button(update: Update, context: CallbackContext):
     if text == 'Я уволился':
         handle_resignation(update, context)
     elif text == 'Я в отпуске':
-        update.message.reply_text("Вы в отпуске. Ваш статус обновлен.")
+        # Запускаем обработчик отпуска из buttons_handler
+        return handle_vacation_start(update, context)
     elif text == 'В начало':
         return return_to_start(update, context)
 
@@ -376,6 +388,521 @@ def return_to_start(update: Update, context: CallbackContext):
     # Возвращаем состояние ENTER_TAB_NUMBER, если используется ConversationHandler
     return ENTER_TAB_NUMBER
 
+# Обработчик команды для администраторов
+def admin_command(update: Update, context: CallbackContext):
+    # Проверка прав доступа
+    if not check_access(update, context):
+        return
+        
+    role = context.user_data.get('role')
+    if role != 'Администратор':
+        update.message.reply_text("Эта команда доступна только для администраторов.")
+        return
+        
+    keyboard = [
+        ['Выгрузить данные', 'Редактировать справочники'],
+        ['Список пользователей', 'Назад']
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+    update.message.reply_text(
+        "Панель администратора. Выберите действие:",
+        reply_markup=reply_markup
+    )
+
+# Обработчик команды для руководителей
+def manager_command(update: Update, context: CallbackContext):
+    # Проверка прав доступа
+    if not check_access(update, context):
+        return
+        
+    role = context.user_data.get('role')
+    if role != 'Руководитель':
+        update.message.reply_text("Эта команда доступна только для руководителей.")
+        return
+        
+    keyboard = [
+        ['Выгрузить данные', 'Статистика показаний'],
+        ['Список пользователей', 'Назад']
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+    update.message.reply_text(
+        "Панель руководителя. Выберите действие:",
+        reply_markup=reply_markup
+    )
+
+# Обработчик команды для пользователей
+def user_command(update: Update, context: CallbackContext):
+    # Проверка прав доступа
+    if not check_access(update, context):
+        return
+        
+    keyboard = [
+        ['Загрузить показания', 'Мой профиль'],
+        ['Назад']
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+    update.message.reply_text(
+        "Панель пользователя. Выберите действие:",
+        reply_markup=reply_markup
+    )
+
+# Обработчик для кнопки "Загрузить показания"
+def handle_upload_readings(update: Update, context: CallbackContext):
+    if not check_access(update, context):
+        return ConversationHandler.END
+        
+    tab_number = context.user_data.get('tab_number')
+    
+    # Получаем информацию о пользователе
+    cursor.execute('''
+        SELECT name, location, division FROM Users_user_bot 
+        WHERE tab_number = ?
+    ''', (tab_number,))
+    user_data = cursor.fetchone()
+    
+    if not user_data:
+        update.message.reply_text("Ошибка: пользователь не найден в базе данных.")
+        return ConversationHandler.END
+        
+    name, location, division = user_data
+    
+    keyboard = [
+        [InlineKeyboardButton("Загрузить Excel файл", callback_data='upload_excel')],
+        [InlineKeyboardButton("Ввести показания вручную", callback_data='enter_readings')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    update.message.reply_text(
+        f"Выберите способ подачи показаний счетчиков:\n\n"
+        f"📍 Локация: {location}\n"
+        f"🏢 Подразделение: {division}",
+        reply_markup=reply_markup
+    )
+    return ENTER_READINGS
+
+# Обработчик выбора способа загрузки показаний
+def readings_choice_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    
+    if query.data == 'upload_excel':
+        query.edit_message_text(
+            "Пожалуйста, отправьте заполненный Excel файл с показаниями.\n\n"
+            "Файл должен содержать столбцы:\n"
+            "№ п/п, Гос. номер, Инв. №, Счётчик, Показания, Комментарий"
+        )
+        # Здесь не возвращаем следующее состояние, так как файл будет обрабатываться отдельным обработчиком
+        return ConversationHandler.END
+    elif query.data == 'enter_readings':
+        # Получаем список оборудования для данного пользователя
+        tab_number = context.user_data.get('tab_number')
+        
+        cursor.execute('''
+            SELECT location, division FROM Users_user_bot 
+            WHERE tab_number = ?
+        ''', (tab_number,))
+        user_location = cursor.fetchone()
+        
+        if not user_location:
+            query.edit_message_text("Ошибка: не удалось получить информацию о пользователе")
+            return ConversationHandler.END
+            
+        location, division = user_location
+        
+        # Получаем список оборудования для данной локации и подразделения
+        try:
+            from check import MeterValidator
+            validator = MeterValidator()
+            equipment_df = validator._get_equipment_for_location_division(location, division)
+            
+            if equipment_df.empty:
+                query.edit_message_text(
+                    f"На вашей локации ({location}, {division}) нет оборудования для ввода показаний. "
+                    f"Обратитесь к администратору."
+                )
+                return ConversationHandler.END
+            
+            # Сохраняем список оборудования в контексте пользователя
+            context.user_data['equipment'] = equipment_df.to_dict('records')
+            
+            # Создаем клавиатуру с оборудованием
+            keyboard = []
+            for index, row in equipment_df.iterrows():
+                inv_num = row['Инв. №']
+                meter_type = row['Счётчик']
+                gos_number = row['Гос. номер'] if 'Гос. номер' in row else "N/A"
+                
+                # Ограничиваем длину для корректного отображения
+                label = f"{gos_number} | {inv_num} | {meter_type}"
+                if len(label) > 30:
+                    label = label[:27] + "..."
+                
+                keyboard.append([
+                    InlineKeyboardButton(
+                        label, 
+                        callback_data=f"equip_{index}"
+                    )
+                ])
+            
+            # Добавляем кнопку завершения
+            keyboard.append([InlineKeyboardButton("🔄 Завершить и отправить", callback_data="finish_readings")])
+            
+            # Создаем таблицу для сбора показаний в контексте пользователя
+            if 'readings_data' not in context.user_data:
+                context.user_data['readings_data'] = {}
+                
+            query.edit_message_text(
+                "Выберите оборудование для ввода показаний:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return SELECT_EQUIPMENT
+            
+        except Exception as e:
+            logger.error(f"Ошибка при получении списка оборудования: {e}")
+            query.edit_message_text(f"Ошибка при получении списка оборудования: {str(e)}")
+            return ConversationHandler.END
+
+# Обработчик выбора оборудования для ввода показаний
+def select_equipment_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    
+    if query.data == "finish_readings":
+        # Проверяем, что есть хотя бы одно введенное показание
+        if not context.user_data.get('readings_data'):
+            query.edit_message_text("Вы не ввели ни одного показания. Процесс отменен.")
+            return ConversationHandler.END
+            
+        # Переходим к подтверждению и отправке показаний
+        return confirm_readings(update, context)
+    
+    # Получаем индекс выбранного оборудования
+    equip_index = int(query.data.split('_')[1])
+    equipment = context.user_data['equipment'][equip_index]
+    
+    # Сохраняем текущий выбор в контексте
+    context.user_data['current_equipment'] = equipment
+    context.user_data['current_equip_index'] = equip_index
+    
+    # Получаем последнее показание для этого счетчика
+    from check import MeterValidator
+    validator = MeterValidator()
+    last_reading = validator._get_last_reading(equipment['Инв. №'], equipment['Счётчик'])
+    
+    last_reading_info = ""
+    if last_reading:
+        last_reading_info = f"\n\nПоследнее показание: {last_reading['reading']} ({last_reading['reading_date']})"
+    
+    # Создаем опции для ввода показаний
+    keyboard = [
+        [InlineKeyboardButton("Ввести показание", callback_data="enter_value")],
+        [
+            InlineKeyboardButton("Неисправен", callback_data="comment_Неисправен"),
+            InlineKeyboardButton("В ремонте", callback_data="comment_В ремонте")
+        ],
+        [
+            InlineKeyboardButton("Убыло", callback_data="comment_Убыло"),
+            InlineKeyboardButton("« Назад", callback_data="back_to_list")
+        ]
+    ]
+    
+    query.edit_message_text(
+        f"Оборудование:\n"
+        f"Гос. номер: {equipment['Гос. номер']}\n"
+        f"Инв. №: {equipment['Инв. №']}\n"
+        f"Счётчик: {equipment['Счётчик']}{last_reading_info}\n\n"
+        f"Выберите действие:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ENTER_VALUE
+
+# Обработчик ввода значения или комментария
+def enter_value_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    
+    if not query:  # Если это текстовое сообщение (а не нажатие кнопки)
+        try:
+            value = float(update.message.text)
+            if value < 0:
+                update.message.reply_text("Показание не может быть отрицательным. Пожалуйста, введите положительное число.")
+                return ENTER_VALUE
+                
+            # Сохраняем введенное значение
+            equipment = context.user_data['current_equipment']
+            equip_index = context.user_data['current_equip_index']
+            
+            # Проверяем, что значение не меньше предыдущего
+            from check import MeterValidator
+            validator = MeterValidator()
+            last_reading = validator._get_last_reading(equipment['Инв. №'], equipment['Счётчик'])
+            
+            if last_reading and value < last_reading['reading']:
+                update.message.reply_text(
+                    f"Ошибка: введенное показание ({value}) меньше предыдущего ({last_reading['reading']}). "
+                    f"Пожалуйста, введите корректное значение."
+                )
+                return ENTER_VALUE
+            
+            # Проверки по типу счетчика
+            if last_reading:
+                days_between = validator._get_days_between(last_reading['reading_date'])
+                if days_between > 0:
+                    daily_change = (value - last_reading['reading']) / days_between
+                    
+                    if equipment['Счётчик'].startswith('PM') and daily_change > 24:
+                        update.message.reply_text(
+                            f"Предупреждение: Слишком большое изменение для счетчика PM ({daily_change:.2f} в сутки). "
+                            f"Максимально допустимое изменение: 24 в сутки."
+                        )
+                        
+                    if equipment['Счётчик'].startswith('KM') and daily_change > 500:
+                        update.message.reply_text(
+                            f"Предупреждение: Слишком большое изменение для счетчика KM ({daily_change:.2f} в сутки). "
+                            f"Максимально допустимое изменение: 500 в сутки."
+                        )
+            
+            context.user_data['readings_data'][equip_index] = {
+                'value': value,
+                'comment': '',
+                'equipment': equipment
+            }
+            
+            # Возвращаемся к списку оборудования
+            equipment_keyboard = []
+            for i, equip in enumerate(context.user_data['equipment']):
+                # Отмечаем оборудование, для которого уже введены данные
+                prefix = "✅ " if i in context.user_data['readings_data'] else ""
+                
+                label = f"{prefix}{equip['Гос. номер']} | {equip['Инв. №']} | {equip['Счётчик']}"
+                if len(label) > 30:
+                    label = label[:27] + "..."
+                    
+                equipment_keyboard.append([
+                    InlineKeyboardButton(label, callback_data=f"equip_{i}")
+                ])
+            
+            equipment_keyboard.append([InlineKeyboardButton("🔄 Завершить и отправить", callback_data="finish_readings")])
+            
+            update.message.reply_text(
+                f"Показание {value} для {equipment['Инв. №']} ({equipment['Счётчик']}) сохранено.\n\n"
+                f"Выберите следующее оборудование или завершите ввод:",
+                reply_markup=InlineKeyboardMarkup(equipment_keyboard)
+            )
+            return SELECT_EQUIPMENT
+            
+        except ValueError:
+            update.message.reply_text("Пожалуйста, введите числовое значение.")
+            return ENTER_VALUE
+    else:
+        query.answer()
+        
+        if query.data == "back_to_list":
+            # Возвращаемся к списку оборудования
+            equipment_keyboard = []
+            for i, equip in enumerate(context.user_data['equipment']):
+                # Отмечаем оборудование, для которого уже введены данные
+                prefix = "✅ " if i in context.user_data['readings_data'] else ""
+                
+                label = f"{prefix}{equip['Гос. номер']} | {equip['Инв. №']} | {equip['Счётчик']}"
+                if len(label) > 30:
+                    label = label[:27] + "..."
+                    
+                equipment_keyboard.append([
+                    InlineKeyboardButton(label, callback_data=f"equip_{i}")
+                ])
+            
+            equipment_keyboard.append([InlineKeyboardButton("🔄 Завершить и отправить", callback_data="finish_readings")])
+            
+            query.edit_message_text(
+                "Выберите оборудование для ввода показаний:",
+                reply_markup=InlineKeyboardMarkup(equipment_keyboard)
+            )
+            return SELECT_EQUIPMENT
+        elif query.data == "enter_value":
+            # Запрашиваем ввод числового значения
+            query.edit_message_text(
+                f"Оборудование: {context.user_data['current_equipment']['Инв. №']} ({context.user_data['current_equipment']['Счётчик']})\n\n"
+                f"Введите числовое значение показания:"
+            )
+            return ENTER_VALUE
+        elif query.data.startswith("comment_"):
+            # Сохраняем комментарий без значения показания
+            comment = query.data.split('_', 1)[1]
+            equipment = context.user_data['current_equipment']
+            equip_index = context.user_data['current_equip_index']
+            
+            # Если выбран "В ремонте", автоматически подставляем последнее показание
+            value = None
+            auto_value_message = ""
+            
+            if comment == "В ремонте":
+                from check import MeterValidator
+                validator = MeterValidator()
+                last_reading = validator._get_last_reading(equipment['Инв. №'], equipment['Счётчик'])
+                
+                if last_reading:
+                    value = last_reading['reading']
+                    auto_value_message = f" (автоматически использовано последнее показание: {value})"
+            
+            context.user_data['readings_data'][equip_index] = {
+                'value': value,
+                'comment': comment,
+                'equipment': equipment
+            }
+            
+            # Возвращаемся к списку оборудования
+            equipment_keyboard = []
+            for i, equip in enumerate(context.user_data['equipment']):
+                # Отмечаем оборудование, для которого уже введены данные
+                prefix = "✅ " if i in context.user_data['readings_data'] else ""
+                
+                label = f"{prefix}{equip['Гос. номер']} | {equip['Инв. №']} | {equip['Счётчик']}"
+                if len(label) > 30:
+                    label = label[:27] + "..."
+                    
+                equipment_keyboard.append([
+                    InlineKeyboardButton(label, callback_data=f"equip_{i}")
+                ])
+            
+            equipment_keyboard.append([InlineKeyboardButton("🔄 Завершить и отправить", callback_data="finish_readings")])
+            
+            query.edit_message_text(
+                f"Комментарий '{comment}' для {equipment['Инв. №']} ({equipment['Счётчик']}) сохранен{auto_value_message}.\n\n"
+                f"Выберите следующее оборудование или завершите ввод:",
+                reply_markup=InlineKeyboardMarkup(equipment_keyboard)
+            )
+            return SELECT_EQUIPMENT
+
+# Подтверждение и отправка показаний
+def confirm_readings(update: Update, context: CallbackContext):
+    query = update.callback_query
+    if query:
+        query.answer()
+    
+    # Формируем данные для отображения и сохранения
+    readings_data = context.user_data.get('readings_data', {})
+    
+    if not readings_data:
+        if query:
+            query.edit_message_text("Нет данных для отправки. Процесс отменен.")
+        else:
+            update.message.reply_text("Нет данных для отправки. Процесс отменен.")
+        return ConversationHandler.END
+    
+    # Формируем таблицу показаний
+    df = pd.DataFrame(columns=['№ п/п', 'Гос. номер', 'Инв. №', 'Счётчик', 'Показания', 'Комментарий'])
+    
+    row_index = 1
+    for equip_index, data in readings_data.items():
+        equipment = data['equipment']
+        df.loc[row_index] = [
+            row_index,
+            equipment['Гос. номер'],
+            equipment['Инв. №'],
+            equipment['Счётчик'],
+            data['value'] if data['value'] is not None else '',
+            data['comment']
+        ]
+        row_index += 1
+    
+    # Получаем данные пользователя
+    tab_number = context.user_data.get('tab_number')
+    cursor.execute('''
+        SELECT name, location, division FROM Users_user_bot 
+        WHERE tab_number = ?
+    ''', (tab_number,))
+    user_data = cursor.fetchone()
+    name, location, division = user_data
+    
+    # Создаем директорию для отчетов, если не существует
+    os.makedirs('meter_readings', exist_ok=True)
+    
+    # Создаем папку для отчетов текущей недели, если не существует
+    current_week = datetime.now().strftime('%Y-W%U')  # Год-Номер недели
+    report_folder = f'meter_readings/week_{current_week}'
+    os.makedirs(report_folder, exist_ok=True)
+    
+    # Формируем имя файла
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    file_path = f'{report_folder}/meters_{location}_{division}_{tab_number}_{timestamp}.xlsx'
+    
+    # Добавляем метаданные
+    user_info = {
+        'name': name,
+        'location': location,
+        'division': division,
+        'tab_number': tab_number,
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    
+    for key, value in user_info.items():
+        df[key] = value
+    
+    # Сохраняем файл
+    df.to_excel(file_path, index=False)
+    
+    # Валидируем созданный файл
+    from check import MeterValidator
+    validator = MeterValidator()
+    validation_result = validator.validate_file(file_path, user_info)
+    
+    if not validation_result['is_valid']:
+        errors_text = "\n".join(validation_result['errors'])
+        error_message = f"Ошибки при проверке введенных показаний:\n\n{errors_text}\n\nПожалуйста, исправьте и попробуйте снова."
+        
+        if query:
+            query.edit_message_text(error_message)
+        else:
+            update.message.reply_text(error_message)
+        
+        # Удаляем файл с ошибками
+        try:
+            os.remove(file_path)
+        except:
+            pass
+        
+        return ConversationHandler.END
+    
+    # Уведомляем пользователя об успешной отправке
+    moscow_tz = pytz.timezone('Europe/Moscow')
+    moscow_now = datetime.now(moscow_tz)
+    moscow_time_str = moscow_now.strftime('%H:%M %d.%m.%Y')
+    
+    # Проверяем, является ли день пятницей (4) и время до 14:00
+    is_on_time = moscow_now.weekday() == 4 and moscow_now.hour < 14
+    
+    if is_on_time:
+        message_text = (f"✅ Спасибо! Ваши показания счетчиков приняты и прошли проверку.\n\n"
+                       f"📍 Локация: {location}\n"
+                       f"🏢 Подразделение: {division}\n"
+                       f"⏰ Время получения: {moscow_time_str} МСК\n\n"
+                       f"Показания предоставлены в срок. Благодарим за своевременную подачу данных!")
+    else:
+        message_text = (f"✅ Спасибо! Ваши показания счетчиков приняты и прошли проверку.\n\n"
+                       f"📍 Локация: {location}\n"
+                       f"🏢 Подразделение: {division}\n"
+                       f"⏰ Время получения: {moscow_time_str} МСК")
+    
+    if query:
+        query.edit_message_text(message_text)
+    else:
+        update.message.reply_text(message_text)
+    
+    # Уведомляем администраторов и руководителей
+    from meters_handler import notify_admins_and_managers
+    notify_admins_and_managers(context, tab_number, name, location, division, file_path)
+    
+    # Удаляем пользователя из списка тех, кому отправлено напоминание
+    if 'missing_reports' in context.bot_data and tab_number in context.bot_data['missing_reports']:
+        del context.bot_data['missing_reports'][tab_number]
+        logger.info(f"Пользователь {name} удален из списка неотправивших отчеты")
+    
+    # Очищаем данные показаний
+    if 'readings_data' in context.user_data:
+        del context.user_data['readings_data']
+    
+    return ConversationHandler.END
+
 def main():
     # Инициализация бота
     updater = Updater("7575482607:AAG9iLYAO2DFpjHVBDn3-m-tLicdNXBsyBQ", use_context=True)
@@ -395,8 +922,32 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)]
     )
     
-    # Обработчик кнопок
+    # Обработчики команд для разных ролей
+    dispatcher.add_handler(CommandHandler('admin_command', admin_command))
+    dispatcher.add_handler(CommandHandler('manager_command', manager_command))
+    dispatcher.add_handler(CommandHandler('user_command', user_command))
+    
+    # Обработчик кнопок основного меню
     dispatcher.add_handler(MessageHandler(Filters.regex('^(Я уволился|Я в отпуске|В начало)$'), handle_button))
+    
+    # Обработчик кнопок интерфейса пользователя
+    dispatcher.add_handler(MessageHandler(Filters.regex('^Загрузить показания$'), handle_upload_readings))
+    
+    # Обработчики для ввода показаний
+    readings_conv_handler = ConversationHandler(
+        entry_points=[MessageHandler(Filters.regex('^Загрузить показания$'), handle_upload_readings)],
+        states={
+            ENTER_READINGS: [CallbackQueryHandler(readings_choice_handler)],
+            SELECT_EQUIPMENT: [CallbackQueryHandler(select_equipment_handler)],
+            ENTER_VALUE: [
+                CallbackQueryHandler(enter_value_handler),
+                MessageHandler(Filters.text & ~Filters.command, enter_value_handler)
+            ],
+            CONFIRM_READINGS: [CallbackQueryHandler(confirm_readings)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
+    dispatcher.add_handler(readings_conv_handler)
     
     # Обработчик конверсейшена для отпуска
     dispatcher.add_handler(get_vacation_conversation_handler())

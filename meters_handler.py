@@ -8,6 +8,7 @@ import pytz
 import sqlite3
 import logging
 from typing import Dict, List, Tuple
+import glob
 
 # Настройка логгирования
 logging.basicConfig(
@@ -177,13 +178,29 @@ def format_datetime_for_timezone(dt: datetime, location: str) -> str:
 def get_equipment_data() -> pd.DataFrame:
     """Получаем данные об оборудовании из 1С:ERP (заглушка)"""
     try:
-        # В реальной реализации здесь будет подключение к 1С:ERP
-        equipment_df = pd.read_excel('Equipment.xlsx')
-        logger.info("Данные об оборудовании успешно загружены")
-        return equipment_df
+        # В реальной реализации здесь будет подключение к 1С:ERP через шину данных
+        # Примерный код подключения к 1С:ERP:
+        # import requests
+        # erp_api_url = os.getenv('ERP_API_URL', 'http://erp.example.com/api/equipment')
+        # response = requests.get(erp_api_url, headers={'Authorization': os.getenv('ERP_API_KEY')})
+        # if response.status_code == 200:
+        #     data = response.json()
+        #     equipment_df = pd.DataFrame(data)
+        #     logger.info("Данные об оборудовании успешно загружены из 1С:ERP")
+        #     return equipment_df
+        
+        # Временная заглушка - чтение из локального файла
+        try:
+            equipment_df = pd.read_excel('Equipment.xlsx')
+            logger.info("Данные об оборудовании успешно загружены")
+            return equipment_df
+        except FileNotFoundError:
+            logger.warning("Файл Equipment.xlsx не найден. Создаем пустой DataFrame")
+            # Создаем пустой DataFrame с необходимой структурой
+            return pd.DataFrame(columns=['№ п/п', 'Гос. номер', 'Инв. №', 'Счётчик', 'Локация', 'Подразделение'])
     except Exception as e:
         logger.error(f"Ошибка загрузки данных об оборудовании: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(columns=['№ п/п', 'Гос. номер', 'Инв. №', 'Счётчик', 'Локация', 'Подразделение'])
 
 def get_users_on_shift() -> List[Tuple[int, str, str, str]]:
     """Получаем список пользователей на вахте"""
@@ -215,7 +232,31 @@ def schedule_weekly_reminders(context: CallbackContext):
             name="weekly_meters_reminder"
         )
         
-        logger.info("Еженедельные напоминания запланированы на среду в 08:00 МСК")
+        # Планируем задание на пятницу в 14:00 МСК для проверки отправленных данных
+        context.job_queue.run_daily(
+            callback=check_missing_reports,
+            time=time(hour=14, minute=0, tzinfo=moscow_tz),
+            days=(4,),  # 4 - пятница
+            name="check_reports_14_00"
+        )
+        
+        # Планируем задание на пятницу в 15:00 МСК для уведомления администраторов
+        context.job_queue.run_daily(
+            callback=notify_admins_about_missing_reports,
+            time=time(hour=15, minute=0, tzinfo=moscow_tz),
+            days=(4,),  # 4 - пятница
+            name="notify_admins_15_00"
+        )
+        
+        # Планируем задание на понедельник в 08:00 МСК для уведомления руководителей
+        context.job_queue.run_daily(
+            callback=notify_managers_about_missing_reports,
+            time=time(hour=8, minute=0, tzinfo=moscow_tz),
+            days=(0,),  # 0 - понедельник
+            name="notify_managers_monday_08_00"
+        )
+        
+        logger.info("Все еженедельные напоминания и проверки запланированы")
     except Exception as e:
         logger.error(f"Ошибка планирования еженедельных напоминаний: {e}")
 
@@ -377,6 +418,11 @@ def handle_meters_file(update: Update, context: CallbackContext):
         # Создаем папку, если не существует
         os.makedirs('meter_readings', exist_ok=True)
         
+        # Создаем папку для отчетов текущей недели, если не существует
+        current_week = datetime.now().strftime('%Y-W%U')  # Год-Номер недели
+        report_folder = f'meter_readings/week_{current_week}'
+        os.makedirs(report_folder, exist_ok=True)
+        
         # Получаем данные пользователя
         tab_number = context.user_data.get('tab_number')
         if not tab_number:
@@ -398,8 +444,8 @@ def handle_meters_file(update: Update, context: CallbackContext):
         local_time = get_local_datetime(location)
         timestamp = local_time.strftime('%Y%m%d_%H%M%S')
         
-        # Формируем имя файла с учетом часового пояса
-        file_path = f'meter_readings/meters_{location}_{division}_{timestamp}.xlsx'
+        # Формируем имя файла с учетом часового пояса и недели
+        file_path = f'{report_folder}/meters_{location}_{division}_{tab_number}_{timestamp}.xlsx'
         new_file.download(file_path)
         
         # Проверяем, что файл Excel
@@ -440,12 +486,38 @@ def handle_meters_file(update: Update, context: CallbackContext):
         validation_result = validator.validate_file(file_path, user_info)
         
         if validation_result['is_valid']:
-            update.message.reply_text("✅ Спасибо! Ваши показания счетчиков приняты и прошли проверку.")
+            # Получаем московское время для проверки сроков
+            moscow_tz = pytz.timezone('Europe/Moscow')
+            moscow_now = datetime.now(moscow_tz)
+            moscow_time_str = moscow_now.strftime('%H:%M %d.%m.%Y')
+            
+            # Проверяем, является ли день пятницей (4) и время до 14:00
+            is_on_time = moscow_now.weekday() == 4 and moscow_now.hour < 14
+            
+            # Отправляем подтверждение пользователю
+            if is_on_time:
+                message_text = (f"✅ Спасибо! Ваши показания счетчиков приняты и прошли проверку.\n\n"
+                               f"📍 Локация: {location}\n"
+                               f"🏢 Подразделение: {division}\n"
+                               f"⏰ Время получения: {moscow_time_str} МСК\n\n"
+                               f"Показания предоставлены в срок. Благодарим за своевременную подачу данных!")
+            else:
+                message_text = (f"✅ Спасибо! Ваши показания счетчиков приняты и прошли проверку.\n\n"
+                               f"📍 Локация: {location}\n"
+                               f"🏢 Подразделение: {division}\n"
+                               f"⏰ Время получения: {moscow_time_str} МСК")
+            
+            update.message.reply_text(message_text)
             
             # Если есть предупреждения, сообщаем о них
             if validation_result['warnings']:
                 warnings_text = "\n".join(validation_result['warnings'])
                 update.message.reply_text(f"⚠️ Предупреждения при проверке:\n\n{warnings_text}")
+            
+            # Удаляем пользователя из списка тех, кому отправлено напоминание
+            if 'missing_reports' in context.bot_data and tab_number in context.bot_data['missing_reports']:
+                del context.bot_data['missing_reports'][tab_number]
+                logger.info(f"Пользователь {name} удален из списка неотправивших отчеты")
             
             # Уведомляем администраторов и руководителей
             notify_admins_and_managers(context, tab_number, name, location, division, file_path)
@@ -611,6 +683,216 @@ def notify_admin_about_errors(context: CallbackContext, user_tab_number: int, us
                 
     except Exception as e:
         logger.error(f"Ошибка уведомления администраторов о проблемах: {e}")
+
+def check_missing_reports(context: CallbackContext):
+    """Проверка отсутствующих отчетов в пятницу в 14:00 и отправка повторных напоминаний"""
+    try:
+        logger.info("Проверка отсутствующих отчетов в 14:00")
+        
+        # Получаем пользователей на вахте
+        users_on_shift = get_users_on_shift()
+        if not users_on_shift:
+            logger.info("Нет пользователей на вахте для проверки отчетов")
+            return
+        
+        # Создаем папку для отчетов текущей недели, если не существует
+        current_week = datetime.now().strftime('%Y-W%U')  # Год-Номер недели
+        report_folder = f'meter_readings/week_{current_week}'
+        os.makedirs(report_folder, exist_ok=True)
+        
+        # Проверяем каждого пользователя
+        for user in users_on_shift:
+            tab_number, name, location, division = user
+            
+            # Проверяем, подал ли пользователь отчет
+            report_pattern = f'{report_folder}/*_{location}_{division}_{tab_number}_*.xlsx'
+            user_reports = glob.glob(report_pattern)
+            
+            if not user_reports:  # Если отчет не найден
+                # Отправляем повторное напоминание
+                try:
+                    moscow_tz = pytz.timezone('Europe/Moscow')
+                    current_moscow_time = datetime.now(moscow_tz).strftime('%H:%M')
+                    
+                    context.bot.send_message(
+                        chat_id=tab_number,
+                        text=f"⚠️ *ПОВТОРНОЕ НАПОМИНАНИЕ* ⚠️\n\n"
+                             f"Уважаемый {name}, вы не подали показания счетчиков!\n\n"
+                             f"📍 Локация: {location}\n"
+                             f"🏢 Подразделение: {division}\n"
+                             f"🕒 Текущее время: {current_moscow_time} МСК\n\n"
+                             f"Пожалуйста, подайте показания до 15:00 МСК, иначе о факте неподачи будет уведомлен администратор.",
+                        parse_mode='Markdown'
+                    )
+                    logger.info(f"Отправлено повторное напоминание пользователю {name} (tab: {tab_number})")
+                    
+                    # Сохраняем информацию о пользователе, которому отправлено повторное напоминание
+                    context.bot_data.setdefault('missing_reports', {})
+                    context.bot_data['missing_reports'][tab_number] = {
+                        'name': name,
+                        'location': location,
+                        'division': division,
+                        'reminder_sent': True
+                    }
+                except Exception as e:
+                    logger.error(f"Ошибка отправки повторного напоминания {tab_number}: {e}")
+            else:
+                logger.info(f"Пользователь {name} (tab: {tab_number}) уже подал отчет")
+                
+    except Exception as e:
+        logger.error(f"Ошибка проверки отсутствующих отчетов: {e}")
+
+def notify_admins_about_missing_reports(context: CallbackContext):
+    """Уведомление администраторов об отсутствующих отчетах в пятницу в 15:00"""
+    try:
+        logger.info("Уведомление администраторов об отсутствующих отчетах в 15:00")
+        
+        # Получаем информацию о пользователях, не подавших отчеты
+        missing_reports = context.bot_data.get('missing_reports', {})
+        if not missing_reports:
+            logger.info("Нет отсутствующих отчетов, все пользователи выполнили подачу")
+            return
+        
+        # Создаем экземпляр валидатора для получения администраторов по подразделениям
+        from check import MeterValidator
+        validator = MeterValidator()
+        
+        # Для каждого пользователя, не подавшего отчет
+        for tab_number, user_info in missing_reports.items():
+            name = user_info['name']
+            location = user_info['location']
+            division = user_info['division']
+            
+            # Проверяем, подал ли пользователь отчет к 15:00
+            current_week = datetime.now().strftime('%Y-W%U')
+            report_folder = f'meter_readings/week_{current_week}'
+            report_pattern = f'{report_folder}/*_{location}_{division}_{tab_number}_*.xlsx'
+            user_reports = glob.glob(report_pattern)
+            
+            if not user_reports:  # Если отчет все еще не подан
+                # Получаем администраторов для этого подразделения
+                admins = validator.get_admin_for_division(division)
+                if not admins:
+                    logger.error(f"Не найдены администраторы для подразделения {division}")
+                    continue
+                
+                # Уведомляем каждого администратора
+                for admin_id, admin_name in admins:
+                    try:
+                        moscow_tz = pytz.timezone('Europe/Moscow')
+                        current_moscow_time = datetime.now(moscow_tz).strftime('%H:%M %d.%m.%Y')
+                        
+                        context.bot.send_message(
+                            chat_id=admin_id,
+                            text=f"⚠️ *ОТСУТСТВИЕ ОТЧЕТА* ⚠️\n\n"
+                                 f"Администратор {admin_name}, пользователь не подал показания счетчиков:\n\n"
+                                 f"👤 Пользователь: {name}\n"
+                                 f"📍 Локация: {location}\n"
+                                 f"🏢 Подразделение: {division}\n"
+                                 f"🕒 Время проверки: {current_moscow_time} МСК\n\n"
+                                 f"Требуется ваше действие! Если до 8:00 понедельника не будет реакции, "
+                                 f"система автоматически уведомит руководителя.",
+                            parse_mode='Markdown'
+                        )
+                        logger.info(f"Уведомление отправлено администратору {admin_name} (ID: {admin_id})")
+                        
+                        # Отмечаем, что администратор был уведомлен
+                        user_info['admin_notified'] = True
+                        user_info['admin_id'] = admin_id
+                        user_info['admin_name'] = admin_name
+                    except Exception as e:
+                        logger.error(f"Ошибка отправки уведомления администратору {admin_id}: {e}")
+            else:
+                # Пользователь подал отчет после напоминания, удаляем его из списка
+                logger.info(f"Пользователь {name} подал отчет после напоминания")
+                missing_reports.pop(tab_number, None)
+        
+        # Обновляем список отсутствующих отчетов
+        context.bot_data['missing_reports'] = missing_reports
+        
+    except Exception as e:
+        logger.error(f"Ошибка уведомления администраторов: {e}")
+
+def notify_managers_about_missing_reports(context: CallbackContext):
+    """Уведомление руководителей в понедельник в 08:00, если администраторы не отреагировали"""
+    try:
+        logger.info("Проверка реакции администраторов и уведомление руководителей в понедельник")
+        
+        # Получаем информацию о пользователях, не подавших отчеты
+        missing_reports = context.bot_data.get('missing_reports', {})
+        if not missing_reports:
+            logger.info("Нет отсутствующих отчетов, все отчеты обработаны")
+            return
+        
+        # Для каждого пользователя, не подавшего отчет и по которому уведомлен администратор
+        for tab_number, user_info in list(missing_reports.items()):
+            if not user_info.get('admin_notified', False):
+                continue
+                
+            name = user_info['name']
+            location = user_info['location']
+            division = user_info['division']
+            admin_name = user_info.get('admin_name', 'Неизвестно')
+                
+            # Проверяем, подал ли пользователь отчет к понедельнику
+            current_week = datetime.now().strftime('%Y-W%U')
+            report_folder = f'meter_readings/week_{current_week}'
+            report_pattern = f'{report_folder}/*_{location}_{division}_{tab_number}_*.xlsx'
+            user_reports = glob.glob(report_pattern)
+                
+            if not user_reports:  # Если отчет все еще не подан
+                # Получаем руководителей
+                try:
+                    cursor.execute('''
+                        SELECT tab_number, name 
+                        FROM Users_dir_bot 
+                        WHERE division = ?
+                    ''', (division,))
+                    managers = cursor.fetchall()
+                        
+                    if not managers:
+                        # Если нет руководителей для конкретного подразделения, берем всех
+                        cursor.execute('SELECT tab_number, name FROM Users_dir_bot')
+                        managers = cursor.fetchall()
+                            
+                    if not managers:
+                        logger.error(f"Не найдены руководители для уведомления")
+                        continue
+                        
+                    # Уведомляем каждого руководителя
+                    for manager_id, manager_name in managers:
+                        try:
+                            moscow_tz = pytz.timezone('Europe/Moscow')
+                            current_moscow_time = datetime.now(moscow_tz).strftime('%H:%M %d.%m.%Y')
+                                
+                            context.bot.send_message(
+                                chat_id=manager_id,
+                                text=f"🚨 *КРИТИЧЕСКОЕ УВЕДОМЛЕНИЕ* 🚨\n\n"
+                                     f"Руководитель {manager_name}, показания счетчиков не поданы:\n\n"
+                                     f"👤 Пользователь: {name}\n"
+                                     f"📍 Локация: {location}\n"
+                                     f"🏢 Подразделение: {division}\n"
+                                     f"👨‍💼 Ответственный администратор: {admin_name}\n"
+                                     f"🕒 Время проверки: {current_moscow_time} МСК\n\n"
+                                     f"Требуется ваше вмешательство для разрешения ситуации.",
+                                parse_mode='Markdown'
+                            )
+                            logger.info(f"Уведомление отправлено руководителю {manager_name} (ID: {manager_id})")
+                                
+                        except Exception as e:
+                            logger.error(f"Ошибка отправки уведомления руководителю {manager_id}: {e}")
+                except Exception as e:
+                    logger.error(f"Ошибка получения руководителей: {e}")
+            else:
+                # Отчет был подан после уведомления администратора
+                logger.info(f"Отчет для пользователя {name} был подан после уведомления администратора")
+                missing_reports.pop(tab_number, None)
+                
+        # Очищаем список отсутствующих отчетов после обработки всех уведомлений
+        context.bot_data['missing_reports'] = {}
+            
+    except Exception as e:
+        logger.error(f"Ошибка уведомления руководителей: {e}")
 
 def setup_meters_handlers(dispatcher):
     """Настройка обработчиков для работы с показаниями счетчиков"""

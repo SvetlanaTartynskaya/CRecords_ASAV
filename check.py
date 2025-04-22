@@ -1,6 +1,6 @@
 import pandas as pd
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 import sqlite3
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -40,7 +40,7 @@ class MeterValidator:
             self.conn.rollback()
         
         # Допустимые комментарии
-        self.valid_comments = ["В ремонте", "Не исправен счетчик", "Нет на локации"]
+        self.valid_comments = ["В ремонте", "Неисправен", "Убыло"]
     
     def validate_file(self, file_path, user_info):
         """Валидация файла с показаниями"""
@@ -71,7 +71,7 @@ class MeterValidator:
             }
             
             # Проверяем наличие необходимых столбцов
-            required_columns = ['Инв. №', 'Счётчик', 'Показания', 'Комментарий']
+            required_columns = ['№ п/п', 'Гос. номер', 'Инв. №', 'Счётчик', 'Показания', 'Комментарий']
             missing_columns = [col for col in required_columns if col not in df.columns]
             
             if missing_columns:
@@ -84,7 +84,46 @@ class MeterValidator:
                 validation_result['is_valid'] = False
                 validation_result['errors'].append("Файл не содержит данных")
                 return validation_result
+            
+            # Проверяем соответствие оборудования локации и подразделению пользователя
+            location = user_info['location']
+            division = user_info['division']
+            
+            # Получаем список оборудования для данной локации и подразделения
+            equipment_df = self._get_equipment_for_location_division(location, division)
+            
+            if equipment_df.empty:
+                validation_result['is_valid'] = False
+                validation_result['errors'].append(f"Не найдено оборудование для локации '{location}' и подразделения '{division}'")
+                return validation_result
+            
+            # Проверяем каждую строку на соответствие оборудованию локации
+            invalid_equipment = []
+            
+            for index, row in df.iterrows():
+                inv_num = str(row['Инв. №']).strip() if not pd.isna(row['Инв. №']) else ""
+                meter_type = str(row['Счётчик']).strip() if not pd.isna(row['Счётчик']) else ""
+                gos_number = str(row['Гос. номер']).strip() if not pd.isna(row['Гос. номер']) else ""
                 
+                # Проверяем, есть ли такое оборудование в списке для локации
+                equipment_mask = (
+                    (equipment_df['Инв. №'] == inv_num) & 
+                    (equipment_df['Счётчик'] == meter_type)
+                )
+                if gos_number and gos_number.upper() != "N/A":
+                    equipment_mask &= (equipment_df['Гос. номер'] == gos_number)
+                
+                if not equipment_df[equipment_mask].empty:
+                    # Оборудование найдено для локации
+                    continue
+                else:
+                    invalid_equipment.append(f"Строка {index+1}: оборудование (Гос. номер: '{gos_number}', Инв. №: '{inv_num}', Счётчик: '{meter_type}') не соответствует локации и подразделению")
+            
+            if invalid_equipment:
+                validation_result['is_valid'] = False
+                validation_result['errors'].extend(invalid_equipment)
+                return validation_result
+            
             # Проводим проверки по каждой строке
             for index, row in df.iterrows():
                 try:
@@ -198,14 +237,30 @@ class MeterValidator:
                     validation_result['warnings'].append(f"Ошибка сохранения файла: {str(e)}")
             
             return validation_result
-        
         except Exception as e:
             logger.error(f"Ошибка валидации файла: {e}")
             return {
                 'is_valid': False,
-                'errors': [f"Ошибка обработки файла: {str(e)}"],
+                'errors': [f"Критическая ошибка валидации: {str(e)}"],
                 'warnings': []
             }
+    
+    def _get_equipment_for_location_division(self, location, division):
+        """Получает список оборудования для локации и подразделения"""
+        try:
+            # В реальной реализации здесь нужно загрузить данные из 1С:ERP или внутренней БД
+            equipment_df = pd.read_excel('Equipment.xlsx')
+            
+            # Фильтруем по локации и подразделению
+            filtered_df = equipment_df[
+                (equipment_df['Локация'] == location) & 
+                (equipment_df['Подразделение'] == division)
+            ]
+            
+            return filtered_df
+        except Exception as e:
+            logger.error(f"Ошибка получения оборудования для локации/подразделения: {e}")
+            return pd.DataFrame()
     
     def _get_last_reading(self, inv_num, meter_type):
         """Получение последнего показания для данного счетчика"""
